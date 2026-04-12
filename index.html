@@ -220,8 +220,20 @@
         if (result.success) {
             // 🚩 1. สั่งปิดตัวหมุนก่อนทันที
             document.getElementById('loader').style.display = 'none';
-        
-            // 🚩 2. แล้วค่อยโชว์แจ้งเตือนสำเร็จ
+            
+        // 🚩 2. เพิ่มส่วนนี้: ส่งข้อความกลับเข้าแชท LINE เพื่อเป็นหลักฐาน
+            try {
+                await liff.sendMessages([
+                    {
+                        "type": "text",
+                        "text": "✅ บันทึกข้อมูลสำเร็จ\nกรรมการ: " + payload.volunteerName + "\nรายการ: " + payload.subType + "\nวันที่: " + payload.date + "\nครั้งที่: " + result.message.split('ครั้งที่ ')[1].split(' ')[0]
+                    }
+                ]);
+                console.log("ส่งข้อความเข้า LINE สำเร็จ");
+            } catch (err) {
+                console.error("ส่งข้อความเข้า LINE ไม่สำเร็จ (อาจไม่ได้เปิดสิทธิ์):", err);
+            }
+            // 🚩 3. แล้วค่อยโชว์แจ้งเตือนสำเร็จ
             await Swal.fire({
                 icon: 'success',
                 title: 'บันทึกสำเร็จ!',
@@ -229,7 +241,7 @@
                 confirmButtonText: 'ตกลง'
             });
             
-            // 🚩 3. ปิดหน้าต่าง LIFF
+            // 🚩 4. ปิดหน้าต่าง LIFF
             liff.closeWindow();
         } else {
             // กรณี Error ก็ต้องปิดตัวหมุนเช่นกัน
