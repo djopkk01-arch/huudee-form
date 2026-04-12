@@ -171,34 +171,49 @@
     initLiff();
 
     // เช็คบทบาทผู้ใช้งานจาก Server
-    async function checkUserRole(lineId) {
-        try {
-            const response = await fetch(`${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`);
-            const data = await response.json();
-            
-            document.getElementById('loader').style.display = 'none';
+// เช็คบทบาทผู้ใช้งานจาก Server
+async function checkUserRole(lineId) {
+    try {
+        const response = await fetch(`${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`);
+        const data = await response.json();
+        
+        document.getElementById('loader').style.display = 'none';
 
-            if (data.success) {
-                currentUser = data; // {fullname, role}
-                const isStaff = data.role.includes("เจ้าหน้าที่") || data.role.includes("admin");
+        if (data.exists) { // 🚩 เปลี่ยนจาก data.success เป็น data.exists ตามโครงสร้าง Object ของพี่
+            currentUser = data; 
+            const role = data.role ? data.role.toLowerCase() : "";
+            const isStaff = role.includes("เจ้าหน้าที่") || role.includes("admin");
 
-                if (isStaff) {
-                    document.getElementById('staffSection').style.display = 'block';
-                    // กรณีเจ้าหน้าที่เปิดจากปุ่มบันทึกที่มีชื่อพ่วงมา
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const vName = urlParams.get('vname');
-                    if (vName) document.getElementById('volunteerName').value = vName;
-                } else {
-                    document.getElementById('volunteerDashboard').style.display = 'block';
-                    document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
-                    loadDashboardData(data.fullname);
-                }
+            if (isStaff) {
+                document.getElementById('staffSection').style.display = 'block';
+                const urlParams = new URLSearchParams(window.location.search);
+                const vName = urlParams.get('vname');
+                if (vName) document.getElementById('volunteerName').value = vName;
             } else {
-                Swal.fire('ไม่พบสิทธิ์', 'บัญชี LINE นี้ยังไม่ได้ลงทะเบียนในระบบพี่ฮู้ดี', 'error');
+                document.getElementById('volunteerDashboard').style.display = 'block';
+                document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
+                loadDashboardData(data.fullname);
             }
-        } catch (e) { Swal.fire('Error', 'เชื่อมต่อ Server ไม่สำเร็จ', 'error'); }
+        } else {
+            // 🚩 🚩 กรณีไม่พบการลงทะเบียน 🚩 🚩
+            Swal.fire({
+                title: 'ยังไม่ได้ลงทะเบียน',
+                text: 'ขออภัยครับ ไม่พบข้อมูลบัญชี LINE นี้ในระบบ พี่ฮู้ดี รบกวนลงทะเบียนยืนยันตัวตนก่อนเข้าใช้งานนะครับ',
+                icon: 'info',
+                confirmButtonText: 'ไปหน้าลงทะเบียน',
+                allowOutsideClick: false
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // 🚩 ส่งไปที่หน้าผูกบัญชีใน LINE (ลิ้งก์ที่ใช้ลงทะเบียน)
+                    // หรือพี่จะใช้ liff.closeWindow() เพื่อให้เขากลับไปคุยกับบอทก็ได้ครับ
+                    liff.closeWindow(); 
+                }
+            });
+        }
+    } catch (e) { 
+        Swal.fire('Error', 'เชื่อมต่อ Server ไม่สำเร็จ หรือระบบขัดข้อง', 'error'); 
     }
-
+}
     // --- 2. โหลดคะแนนและตาราง (สำหรับกรรมการ) ---
     async function loadDashboardData(name) {
         const year = document.getElementById('year').value;
