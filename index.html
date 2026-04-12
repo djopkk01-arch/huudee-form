@@ -170,50 +170,58 @@
     }
     initLiff();
 
-    // เช็คบทบาทผู้ใช้งานจาก Server
-// เช็คบทบาทผู้ใช้งานจาก Server
 async function checkUserRole(lineId) {
     try {
+        // 1. เรียกข้อมูลจาก Server
         const response = await fetch(`${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`);
         const data = await response.json();
         
+        console.log("Debug Data:", data); // ดูค่าที่ส่งกลับมาใน Console
         document.getElementById('loader').style.display = 'none';
 
-        if (data.exists) { // 🚩 เปลี่ยนจาก data.success เป็น data.exists ตามโครงสร้าง Object ของพี่
+        // 🚩 จุดที่ต้องแก้: เช็ค data.exists ตามที่ JSON ส่งมาจริง
+        if (data && data.exists === true) { 
             currentUser = data; 
-            const role = data.role ? data.role.toLowerCase() : "";
-            const isStaff = role.includes("เจ้าหน้าที่") || role.includes("admin");
+            
+            // เช็คบทบาท (Role)
+            const role = (data.role || "").toLowerCase();
+            // เช็คสิทธิ์ Admin/Staff จาก JSON ที่ส่งมาได้เลย
+            const isStaff = data.isAdminOrStaff === true || role.includes("admin") || role.includes("เจ้าหน้าที่");
 
             if (isStaff) {
+                // ✅ กรณีเจ้าหน้าที่/แอดมิน: เปิดหน้าบันทึก
                 document.getElementById('staffSection').style.display = 'block';
+                document.getElementById('volunteerDashboard').style.display = 'none';
+                
+                // ดึงชื่อพ่วงจาก URL (ถ้ามี)
                 const urlParams = new URLSearchParams(window.location.search);
                 const vName = urlParams.get('vname');
                 if (vName) document.getElementById('volunteerName').value = vName;
+                
             } else {
+                // ✅ กรณีกรรมการ: เปิดหน้า Dashboard คะแนน
                 document.getElementById('volunteerDashboard').style.display = 'block';
+                document.getElementById('staffSection').style.display = 'none';
                 document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
                 loadDashboardData(data.fullname);
             }
         } else {
-            // 🚩 🚩 กรณีไม่พบการลงทะเบียน 🚩 🚩
+            // ❌ กรณีไม่พบข้อมูลใน Users_DB หรือ exists เป็น false
             Swal.fire({
                 title: 'ยังไม่ได้ลงทะเบียน',
-                text: 'ขออภัยครับ ไม่พบข้อมูลบัญชี LINE นี้ในระบบ พี่ฮู้ดี รบกวนลงทะเบียนยืนยันตัวตนก่อนเข้าใช้งานนะครับ',
-                icon: 'info',
-                confirmButtonText: 'ไปหน้าลงทะเบียน',
-                allowOutsideClick: false
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    // 🚩 ส่งไปที่หน้าผูกบัญชีใน LINE (ลิ้งก์ที่ใช้ลงทะเบียน)
-                    // หรือพี่จะใช้ liff.closeWindow() เพื่อให้เขากลับไปคุยกับบอทก็ได้ครับ
-                    liff.closeWindow(); 
-                }
+                text: 'ไม่พบข้อมูลบัญชี LINE นี้ในระบบ พี่ฮู้ดี กรุณายืนยันตัวตนใน LINE ก่อนนะครับ',
+                icon: 'warning',
+                confirmButtonText: 'รับทราบ'
+            }).then(() => {
+                liff.closeWindow(); // ปิดหน้าต่างเพื่อให้เขากลับไปลงทะเบียนในแชท
             });
         }
     } catch (e) { 
-        Swal.fire('Error', 'เชื่อมต่อ Server ไม่สำเร็จ หรือระบบขัดข้อง', 'error'); 
+        console.error("CheckRole Error:", e);
+        Swal.fire('Error', 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้', 'error'); 
     }
 }
+    
     // --- 2. โหลดคะแนนและตาราง (สำหรับกรรมการ) ---
     async function loadDashboardData(name) {
         const year = document.getElementById('year').value;
