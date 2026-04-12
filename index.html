@@ -217,12 +217,25 @@
             });
             const result = await response.json();
 
-            if (result.success) {
-                await Swal.fire('บันทึกสำเร็จ!', 'ข้อมูลและรูปภาพถูกเก็บลงระบบแล้ว', 'success');
-                liff.closeWindow();
-            } else {
-                throw new Error(result.message);
-            }
+        if (result.success) {
+            // 🚩 1. สั่งปิดตัวหมุนก่อนทันที
+            document.getElementById('loader').style.display = 'none';
+        
+            // 🚩 2. แล้วค่อยโชว์แจ้งเตือนสำเร็จ
+            await Swal.fire({
+                icon: 'success',
+                title: 'บันทึกสำเร็จ!',
+                text: 'ข้อมูลและรูปภาพถูกเก็บลงระบบแล้ว',
+                confirmButtonText: 'ตกลง'
+            });
+            
+            // 🚩 3. ปิดหน้าต่าง LIFF
+            liff.closeWindow();
+        } else {
+            // กรณี Error ก็ต้องปิดตัวหมุนเช่นกัน
+            document.getElementById('loader').style.display = 'none';
+            Swal.fire('เกิดข้อผิดพลาด', result.message, 'error');
+        }
         } catch (err) {
             Swal.fire('เกิดข้อผิดพลาด', err.message, 'error');
         } finally {
