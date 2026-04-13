@@ -323,6 +323,7 @@ async function checkUserRole(lineId) {
         }
 
         const payload = {
+            userId: liff.getContext().userId,
             year: document.getElementById('year').value,
             volunteerName: document.getElementById('volunteerName').value,
             mainType: document.getElementById('mainType').value,
