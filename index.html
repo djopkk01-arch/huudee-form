@@ -174,7 +174,6 @@ async function checkUserRole(lineId) {
     try {
         const url = `${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`;
         
-        // ใช้โหมด cors และ follow เพื่อรองรับการ Redirect ของ Google
         const response = await fetch(url, {
             method: 'GET',
             mode: 'cors',
@@ -182,31 +181,48 @@ async function checkUserRole(lineId) {
         });
 
         const data = await response.json();
-        console.log("Response Data:", data); // ตรวจสอบค่าใน Console (F12)
+        console.log("Response Data:", data);
 
         document.getElementById('loader').style.display = 'none';
 
-        // เช็คเงื่อนไขตาม JSON ที่ส่งมาจริง
-        if (data && (data.exists === true || data.success === true)) {
-            // ... (Logic แยกหน้าจอตามบทบาทเดิมของพี่) ...
-            // อย่าลืมเช็ค data.isAdminOrStaff หรือ data.role ตาม JSON นะครับ
-            const isStaff = data.isAdminOrStaff === true || (data.role && data.role.toLowerCase().includes("admin"));
+        if (data && data.exists === true) {
+            currentUser = data; 
             
-            if (isStaff) {
+            // 🚩 ปรับปรุงเงื่อนไขการตรวจสอบสิทธิ์ตรงนี้ครับ
+            const role = (data.role || "").toLowerCase();
+            const isAuthorizedStaff = data.isAdminOrStaff === true || 
+                                     role.includes("admin") || 
+                                     role.includes("เจ้าหน้าที่สถานพินิจ");
+            
+            if (isAuthorizedStaff) {
+                // ✅ กรณี แอดมิน หรือ เจ้าหน้าที่สถานพินิจ: แสดงหน้าบันทึกข้อมูล
                 document.getElementById('staffSection').style.display = 'block';
-                // ...
+                document.getElementById('volunteerDashboard').style.display = 'none';
+                
+                // ดึงชื่อพ่วงจาก URL (ถ้ามี)
+                const urlParams = new URLSearchParams(window.location.search);
+                const vName = urlParams.get('vname');
+                if (vName) document.getElementById('volunteerName').value = vName;
+                
             } else {
+                // ✅ กรณีกรรมการ: แสดงเฉพาะหน้าคะแนนสะสมและผลงาน
                 document.getElementById('volunteerDashboard').style.display = 'block';
+                document.getElementById('staffSection').style.display = 'none';
                 document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
                 loadDashboardData(data.fullname);
             }
         } else {
-             // แจ้งเตือนยังไม่ลงทะเบียน
+             // กรณีไม่พบการลงทะเบียน
+             Swal.fire({
+                title: 'ไม่พบข้อมูลลงทะเบียน',
+                text: 'บัญชี LINE นี้ยังไม่ได้ลงทะเบียนในระบบ พี่ฮู้ดี กรุณาติดต่อแอดมินหรือยืนยันตัวตนในแชทก่อนครับ',
+                icon: 'warning'
+             }).then(() => liff.closeWindow());
         }
     } catch (err) {
         console.error("Fetch error:", err);
         document.getElementById('loader').style.display = 'none';
-        Swal.fire('เชื่อมต่อไม่สำเร็จ', 'ไม่สามารถเข้าถึงฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง', 'error');
+        Swal.fire('Error', 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้', 'error');
     }
 }
     
