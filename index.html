@@ -13,7 +13,7 @@
         .card-custom { border-radius: 20px; border: none; box-shadow: 0 10px 25px rgba(0,0,0,0.08); background: white; margin-bottom: 20px; overflow: hidden; }
         .header-title { color: #0d6efd; font-weight: 800; }
         
-        /* สไตล์หน้า Dashboard กรรมการ */
+        /* Dashboard สไตล์ */
         .score-box { background: linear-gradient(45deg, #0d6efd, #0056b3); color: white; border-radius: 15px; padding: 25px; text-align: center; }
         .progress { height: 12px; border-radius: 10px; margin: 15px 0; background-color: rgba(255,255,255,0.2); }
         .section-special { display: none; border-left: 4px solid #0d6efd; background-color: #f8f9ff; padding: 15px; border-radius: 0 10px 10px 0; margin-top: 15px; }
@@ -23,7 +23,11 @@
             color: white; border-radius: 12px; padding: 15px; 
             font-weight: bold; width: 100%; border: none; transition: 0.3s;
         }
+        .btn-submit:disabled { opacity: 0.7; cursor: not-allowed; }
         .loading-overlay { display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 9999; justify-content: center; align-items: center; flex-direction: column; }
+        
+        /* File Badge สไตล์ */
+        .file-badge { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 10px; padding: 8px 12px; display: flex; align-items: center; font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -62,8 +66,7 @@
                             <th class="text-center">จำนวนครั้ง</th>
                         </tr>
                     </thead>
-                    <tbody id="summaryTableBody" class="small">
-                        </tbody>
+                    <tbody id="summaryTableBody" class="small"></tbody>
                 </table>
             </div>
         </div>
@@ -75,7 +78,6 @@
                 <h4 class="header-title"><i class="bi bi-pencil-square"></i> บันทึกผลงานใหม่</h4>
                 <p class="text-muted small">ระบบสำหรับเจ้าหน้าที่สถานพินิจฯ ขอนแก่น</p>
             </div>
-
             
             <form id="perfForm" class="row g-3">
                 <div class="col-4">
@@ -132,13 +134,14 @@
                 </div>
 
                 <div class="col-12">
-                    <label class="form-label small">รายละเอียดเพิ่มเติม (คอลัมน์ I)</label>
+                    <label class="form-label small">รายละเอียดเพิ่มเติม</label>
                     <textarea id="details" class="form-control" rows="2" placeholder="พิมพ์สรุปสั้นๆ..."></textarea>
                 </div>
 
                 <div class="col-12">
-                    <label class="form-label small"><i class="bi bi-camera-fill"></i> อัปโหลดรูปภาพ หรือไฟล์ PDF</label>
+                    <label class="form-label small"><i class="bi bi-camera-fill"></i> อัปโหลดรูปภาพ หรือไฟล์ PDF (เลือกเพิ่มได้เรื่อยๆ)</label>
                     <input type="file" id="fileInput" class="form-control" multiple accept="image/*,application/pdf">
+                    <div id="fileListContainer" class="mt-2 d-flex flex-wrap gap-2"></div>
                 </div>
 
                 <div class="col-12 mt-4">
@@ -156,135 +159,180 @@
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzSkZrd80VnNNGlbfFxXwCs9-fy7_pO2JNjepBnv94Afhqaq8KfTwTIv1EJsxcp3NLGFA/exec";
     const LIFF_ID = "2009775169-wgpqbky9";
     let currentUser = null;
+    let selectedFiles = []; // ตัวแปรเก็บไฟล์สะสม
 
-window.onload = function() {
-    liff.init({ liffId: "2009775169-wgpqbky9" }) // ใส่ LIFF ID ของพี่
-        .then(() => {
-            if (!liff.isLoggedIn()) {
-                liff.login(); // ถ้ายังไม่ Login ให้เด้งไปหน้า Login
-            } else {
-                const context = liff.getContext();
-                if (context && context.userId) {
-                    // ✅ เมื่อได้ userId แน่นอนแล้วค่อยเรียกฟังก์ชันตรวจสอบสิทธิ์
-                    checkUserRole(context.userId);
+    // 1. เริ่มต้น LIFF
+    window.onload = function() {
+        liff.init({ liffId: LIFF_ID })
+            .then(() => {
+                if (!liff.isLoggedIn()) {
+                    liff.login();
                 } else {
-                    // กรณีหา userId ไม่เจอจาก Context ให้ลองดึงจาก Profile
-                    liff.getProfile().then(profile => {
-                        checkUserRole(profile.userId);
-                    }).catch(err => {
-                        console.error("Profile Error:", err);
-                        Swal.fire("Error", "ไม่สามารถดึงข้อมูลโปรไฟล์ได้", "error");
-                    });
+                    const context = liff.getContext();
+                    if (context && context.userId) {
+                        checkUserRole(context.userId);
+                    } else {
+                        liff.getProfile().then(p => checkUserRole(p.userId));
+                    }
                 }
-            }
-        })
-        .catch((err) => {
-            console.error("LIFF Init Error:", err);
-            document.getElementById('loader').innerHTML = "เกิดข้อความผิดพลาดในการเชื่อมต่อ LIFF";
-        });
-};
+            })
+            .catch(err => {
+                console.error(err);
+                document.getElementById('loaderText').innerText = "LIFF Error: " + err;
+            });
+    };
 
-// 2. ฟังก์ชันตรวจสอบสิทธิ์ (ที่พี่แก้ล่าสุด)
-async function checkUserRole(lineId) {
-    try {
-        console.log("Checking role for:", lineId);
-        const url = `${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`;
-        
-        // ใช้ timeout เพื่อป้องกันการหมุนค้างตลอดกาลถ้า Server ไม่ตอบสนอง
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // รอ 10 วินาที
-
-        const response = await fetch(url, { 
-            method: 'GET',
-            mode: 'cors',
-            redirect: 'follow',
-            signal: controller.signal 
-        });
-        
-        clearTimeout(timeoutId);
-        const data = await response.json();
-        console.log("Server Data:", data);
-
-        // ปิด Loader
-        document.getElementById('loader').style.display = 'none';
-
-        if (data && data.exists) {
-            const role = (data.role || "").toLowerCase();
-            const isAuthorizedStaff = data.isAdminOrStaff === true || 
-                                     role.includes("admin") || 
-                                     role.includes("เจ้าหน้าที่สถานพินิจ");
-
-            const urlParams = new URLSearchParams(window.location.search);
-            const vName = urlParams.get('vname');
-
-            if (isAuthorizedStaff) {
-                if (vName) {
-                    document.getElementById('staffSection').style.display = 'block';
-                    document.getElementById('volunteerName').value = vName;
-                } else {
-                    Swal.fire('เข้าถึงไม่ได้', 'กรุณาค้นหาชื่อกรรมการจากแชทบอทครับ', 'warning')
-                        .then(() => liff.closeWindow());
-                }
-            } else {
-                // กรรมการดู Dashboard
-                document.getElementById('volunteerDashboard').style.display = 'block';
-                document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
-                loadDashboardData(data.fullname);
-            }
-        } else {
-            Swal.fire('ไม่พบข้อมูล', 'กรุณายืนยันตัวตนก่อนครับ', 'warning')
-                .then(() => liff.closeWindow());
-        }
-    } catch (err) {
-        console.error("Fetch/Role Error:", err);
-        document.getElementById('loader').innerHTML = "ไม่สามารถเชื่อมต่อฐานข้อมูลได้ (Timeout หรือ Network Error)";
-        Swal.fire('Error', 'ไม่สามารถเชื่อมต่อระบบได้ กรุณาลองใหม่อีกครั้ง', 'error');
-    }
-}
-    
-    // --- 2. โหลดคะแนนและตาราง (สำหรับกรรมการ) ---
-    async function loadDashboardData(name) {
-        const year = document.getElementById('year').value;
+    // 2. ตรวจสอบสิทธิ์การใช้งาน
+    async function checkUserRole(lineId) {
         try {
-            const res = await fetch(`${WEB_APP_URL}?action=getSummary&name=${name}&year=${year}`);
-            const data = await res.json();
-            
-            if (data.success) {
-                // อัปเดต KPI
-                const kpi = data.kpiScore || 0;
-                document.getElementById('kpiScore').innerText = `${kpi} / 12`;
-                document.getElementById('scoreBar').style.width = `${Math.min((kpi/12)*100, 100)}%`;
-                
-                // ดาว
-                let stars = '';
-                let starCount = Math.min(Math.floor(kpi / 2.4), 5);
-                for(let i=0; i<5; i++) {
-                    stars += i < starCount ? '<i class="bi bi-star-fill mx-1"></i>' : '<i class="bi bi-star mx-1 opacity-25"></i>';
-                }
-                document.getElementById('starRating').innerHTML = stars;
+            const url = `${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`;
+            const response = await fetch(url, { redirect: 'follow' });
+            const data = await response.json();
 
-                // ตารางสรุป
-                let tableHtml = '';
-                data.summaryData.forEach(item => {
-                    tableHtml += `<tr><td class="text-start">${item.label}</td><td class="text-center fw-bold text-primary">${item.count}</td></tr>`;
-                });
-                document.getElementById('summaryTableBody').innerHTML = tableHtml || '<tr><td colspan="2">ไม่พบประวัติผลงานในปีนี้</td></tr>';
+            document.getElementById('loader').style.display = 'none';
+
+            if (data && data.exists) {
+                currentUser = data;
+                const role = (data.role || "").toLowerCase();
+                const isStaff = data.isAdminOrStaff === true || role.includes("admin") || role.includes("เจ้าหน้าที่สถานพินิจ");
+                
+                const urlParams = new URLSearchParams(window.location.search);
+                const vName = urlParams.get('vname');
+
+                if (isStaff) {
+                    // กรณีเจ้าหน้าที่: ต้องมี vName (ชื่อกรรมการ) ถึงจะให้บันทึก
+                    if (vName) {
+                        document.getElementById('staffSection').style.display = 'block';
+                        document.getElementById('volunteerName').value = vName;
+                    } else {
+                        Swal.fire('เข้าถึงไม่ถูกต้อง', 'กรุณาค้นหาชื่อกรรมการจากแชทบอทเพื่อบันทึกงานครับ', 'warning').then(() => liff.closeWindow());
+                    }
+                } else {
+                    // กรณีกรรมการ: ดู Dashboard
+                    document.getElementById('volunteerDashboard').style.display = 'block';
+                    document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
+                    loadDashboardData(data.fullname);
+                }
+            } else {
+                Swal.fire('ไม่พบข้อมูล', 'กรุณายืนยันตัวตนใน LINE ก่อนใช้งานครับ', 'warning').then(() => liff.closeWindow());
             }
-        } catch (e) { console.error(e); }
+        } catch (err) {
+            Swal.fire('Error', 'ไม่สามารถเชื่อมต่อระบบได้', 'error');
+        }
     }
 
-    // --- 3. UI Control สำหรับฟอร์ม ---
+    // 3. จัดการไฟล์ (สะสมไฟล์และแสดงผล)
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        const newFiles = Array.from(e.target.files);
+        selectedFiles = selectedFiles.concat(newFiles);
+        renderFileList();
+        this.value = ""; // ล้างค่าเพื่อให้เลือกซ้ำได้
+    });
+
+    function renderFileList() {
+        const container = document.getElementById('fileListContainer');
+        container.innerHTML = "";
+        selectedFiles.forEach((file, index) => {
+            const div = document.createElement('div');
+            div.className = "file-badge shadow-sm";
+            div.innerHTML = `
+                <i class="bi ${file.type.startsWith('image/') ? 'bi-image' : 'bi-file-pdf'} me-2 text-primary"></i>
+                <span class="text-truncate" style="max-width: 150px;">${file.name}</span>
+                <i class="bi bi-x-circle-fill ms-2 text-danger" style="cursor:pointer" onclick="removeFile(${index})"></i>
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    function removeFile(index) {
+        selectedFiles.splice(index, 1);
+        renderFileList();
+    }
+
+    // 4. บันทึกข้อมูล
+    document.getElementById('perfForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const volunteer = document.getElementById('volunteerName').value;
+        const confirm = await Swal.fire({
+            title: 'ยืนยันการบันทึก?',
+            text: `กรรมการ: ${volunteer}`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'บันทึกข้อมูล'
+        });
+
+        if (!confirm.isConfirmed) return;
+
+        document.getElementById('loaderText').innerText = "กำลังประมวลผลไฟล์และบันทึกข้อมูล...";
+        document.getElementById('loader').style.display = 'flex';
+        document.getElementById('submitBtn').disabled = true;
+
+        // อ่านไฟล์เป็น Base64
+        let fileData = [];
+        for (let file of selectedFiles) {
+            const base64 = await new Promise(res => {
+                const r = new FileReader();
+                r.onload = (ev) => res(ev.target.result.split(',')[1]);
+                r.readAsDataURL(file);
+            });
+            fileData.push({ base64: base64, mimeType: file.type, fileName: file.name });
+        }
+
+        const payload = {
+            userId: liff.getContext().userId,
+            year: document.getElementById('year').value,
+            volunteerName: volunteer,
+            mainType: document.getElementById('mainType').value,
+            subType: document.getElementById('subType').value,
+            subDetail: (function() {
+                const s = document.getElementById('subType').value;
+                if (s === 'โครงการ') return document.getElementById('projectType').value;
+                if (s === 'ค้ำประกันทำงาน') return document.getElementById('guaranteeType').value;
+                if (s === 'บ้านกึ่งวิถี') return document.getElementById('halfwayType').value;
+                return "-";
+            })(),
+            date: document.getElementById('date').value,
+            details: document.getElementById('details').value,
+            files: fileData
+        };
+
+        try {
+            const res = await fetch(WEB_APP_URL, { method: 'POST', body: JSON.stringify(payload) });
+            const result = await res.json();
+            
+            if (result.success) {
+                // ส่งข้อความแจ้งเตือนใน LINE
+                try {
+                    await liff.sendMessages([{
+                        "type": "text",
+                        "text": `✅ บันทึกสำเร็จ\nกรรมการ: ${payload.volunteerName}\nรายการ: ${payload.subType}`
+                    }]);
+                } catch(e) {}
+                
+                await Swal.fire('สำเร็จ', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success');
+                liff.closeWindow();
+            } else {
+                Swal.fire('ล้มเหลว', result.message, 'error');
+            }
+        } catch (err) {
+            Swal.fire('Error', 'ไม่สามารถบันทึกข้อมูลได้', 'error');
+        } finally {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('submitBtn').disabled = false;
+        }
+    });
+
+    // --- ฟังก์ชัน UI อื่นๆ ---
     function updateSubOptions() {
         const main = document.getElementById('mainType').value;
         const sub = document.getElementById('subType');
         sub.disabled = false;
         sub.innerHTML = '<option value="">เลือกรายการ...</option>';
-
         const opt = {
             'ผลงานทั่วไป': ['เยี่ยมเด็กและเยาวชน', 'ร่วมประชุม'],
             'ผลงานเฉพาะ': ['จัดหาสถานศึกษา', 'ให้ทุนการศึกษา', 'รับหรือจัดหางาน', 'ให้ทุนประกอบอาชีพ', 'ค้ำประกันทำงาน', 'มีปัญหาพิเศษ', 'พ่อแม่อุปถัมภ์', 'สนับสนุน', 'บ้านกึ่งวิถี', 'โครงการ']
         };
-
         if (opt[main]) {
             opt[main].forEach(o => {
                 let el = document.createElement('option');
@@ -296,86 +344,33 @@ async function checkUserRole(lineId) {
     }
 
     function showSpecificSubFields() {
-        const sub = document.getElementById('subType').value;
-        document.getElementById('projectSection').style.display = (sub === 'โครงการ') ? 'block' : 'none';
-        document.getElementById('guaranteeSection').style.display = (sub === 'ค้ำประกันทำงาน') ? 'block' : 'none';
-        document.getElementById('halfwaySection').style.display = (sub === 'บ้านกึ่งวิถี') ? 'block' : 'none';
+        const s = document.getElementById('subType').value;
+        document.getElementById('projectSection').style.display = (s === 'โครงการ') ? 'block' : 'none';
+        document.getElementById('guaranteeSection').style.display = (s === 'ค้ำประกันทำงาน') ? 'block' : 'none';
+        document.getElementById('halfwaySection').style.display = (s === 'บ้านกึ่งวิถี') ? 'block' : 'none';
     }
 
-    // --- 4. บันทึกข้อมูล (สำหรับเจ้าหน้าที่) ---
-    document.getElementById('perfForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        const sub = document.getElementById('subType').value;
-        let subDetail = "-";
-        if (sub === 'โครงการ') subDetail = document.getElementById('projectType').value;
-        else if (sub === 'ค้ำประกันทำงาน') subDetail = document.getElementById('guaranteeType').value;
-        else if (sub === 'บ้านกึ่งวิถี') subDetail = document.getElementById('halfwayType').value;
-
-        const confirm = await Swal.fire({
-            title: 'ยืนยันการบันทึก?',
-            text: `กำลังบันทึกงานให้คุณ ${document.getElementById('volunteerName').value}`,
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonText: 'บันทึกข้อมูล'
-        });
-
-        if (!confirm.isConfirmed) return;
-
-        document.getElementById('loaderText').innerText = "กำลังบันทึกข้อมูลและอัปโหลดรูปภาพ...";
-        document.getElementById('loader').style.display = 'flex';
-        document.getElementById('submitBtn').disabled = true;
-
-        const files = document.getElementById('fileInput').files;
-        let fileData = [];
-        for (let i = 0; i < files.length; i++) {
-            const base64 = await new Promise(resolve => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target.result.split(',')[1]);
-                reader.readAsDataURL(files[i]);
-            });
-            fileData.push({ base64: base64, mimeType: files[i].type, fileName: files[i].name });
-        }
-
-        const payload = {
-            userId: liff.getContext().userId,
-            year: document.getElementById('year').value,
-            volunteerName: document.getElementById('volunteerName').value,
-            mainType: document.getElementById('mainType').value,
-            subType: sub,
-            subDetail: subDetail,
-            date: document.getElementById('date').value,
-            details: document.getElementById('details').value,
-            files: fileData
-        };
-
+    async function loadDashboardData(name) {
+        const year = document.getElementById('year').value;
         try {
-            const response = await fetch(WEB_APP_URL, { method: 'POST', body: JSON.stringify(payload) });
-            const result = await response.json();
-
-            document.getElementById('loader').style.display = 'none';
-
-            if (result.success) {
-                // ส่งข้อความเข้า LINE
-                try {
-                    await liff.sendMessages([{
-                        "type": "text",
-                        "text": `✅ บันทึกข้อมูลสำเร็จ\nกรรมการ: ${payload.volunteerName}\nรายการ: ${payload.subType}\nครั้งที่: ${result.message.split('ครั้งที่ ')[1].split(' ')[0]}`
-                    }]);
-                } catch (err) {}
-
-                await Swal.fire('บันทึกสำเร็จ!', 'ข้อมูลถูกเก็บลงระบบเรียบร้อยแล้ว', 'success');
-                liff.closeWindow();
-            } else {
-                Swal.fire('เกิดข้อผิดพลาด', result.message, 'error');
+            const res = await fetch(`${WEB_APP_URL}?action=getSummary&name=${name}&year=${year}`);
+            const data = await res.json();
+            if (data.success) {
+                const kpi = data.kpiScore || 0;
+                document.getElementById('kpiScore').innerText = `${kpi} / 12`;
+                document.getElementById('scoreBar').style.width = `${Math.min((kpi/12)*100, 100)}%`;
+                let stars = '';
+                let starCount = Math.min(Math.floor(kpi / 2.4), 5);
+                for(let i=0; i<5; i++) stars += i < starCount ? '<i class="bi bi-star-fill mx-1"></i>' : '<i class="bi bi-star mx-1 opacity-25"></i>';
+                document.getElementById('starRating').innerHTML = stars;
+                let tableHtml = '';
+                data.summaryData.forEach(item => {
+                    tableHtml += `<tr><td class="text-start">${item.label}</td><td class="text-center fw-bold text-primary">${item.count}</td></tr>`;
+                });
+                document.getElementById('summaryTableBody').innerHTML = tableHtml || '<tr><td colspan="2">ไม่พบประวัติผลงานในปีนี้</td></tr>';
             }
-        } catch (err) {
-            Swal.fire('เกิดข้อผิดพลาด', 'ไม่สามารถเชื่อมต่อ Server ได้', 'error');
-        } finally {
-            document.getElementById('loader').style.display = 'none';
-            document.getElementById('submitBtn').disabled = false;
-        }
-    });
+        } catch (e) { console.error(e); }
+    }
 </script>
 </body>
 </html>
