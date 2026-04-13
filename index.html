@@ -157,73 +157,88 @@
     const LIFF_ID = "2009775169-wgpqbky9";
     let currentUser = null;
 
-    // --- 1. เริ่มระบบและตรวจสอบสิทธิ์จาก LINE ---
-    async function initLiff() {
-        try {
-            await liff.init({ liffId: LIFF_ID });
+window.onload = function() {
+    liff.init({ liffId: "2009775169-wgpqbky9" }) // ใส่ LIFF ID ของพี่
+        .then(() => {
             if (!liff.isLoggedIn()) {
-                liff.login();
+                liff.login(); // ถ้ายังไม่ Login ให้เด้งไปหน้า Login
             } else {
-                const profile = await liff.getProfile();
-                checkUserRole(profile.userId);
+                const context = liff.getContext();
+                if (context && context.userId) {
+                    // ✅ เมื่อได้ userId แน่นอนแล้วค่อยเรียกฟังก์ชันตรวจสอบสิทธิ์
+                    checkUserRole(context.userId);
+                } else {
+                    // กรณีหา userId ไม่เจอจาก Context ให้ลองดึงจาก Profile
+                    liff.getProfile().then(profile => {
+                        checkUserRole(profile.userId);
+                    }).catch(err => {
+                        console.error("Profile Error:", err);
+                        Swal.fire("Error", "ไม่สามารถดึงข้อมูลโปรไฟล์ได้", "error");
+                    });
+                }
             }
-        } catch (err) { console.error('LIFF Error', err); }
-    }
-    initLiff();
+        })
+        .catch((err) => {
+            console.error("LIFF Init Error:", err);
+            document.getElementById('loader').innerHTML = "เกิดข้อความผิดพลาดในการเชื่อมต่อ LIFF";
+        });
+};
 
+// 2. ฟังก์ชันตรวจสอบสิทธิ์ (ที่พี่แก้ล่าสุด)
 async function checkUserRole(lineId) {
     try {
+        console.log("Checking role for:", lineId);
         const url = `${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`;
         
-        const response = await fetch(url, {
+        // ใช้ timeout เพื่อป้องกันการหมุนค้างตลอดกาลถ้า Server ไม่ตอบสนอง
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // รอ 10 วินาที
+
+        const response = await fetch(url, { 
             method: 'GET',
             mode: 'cors',
-            redirect: 'follow' 
+            redirect: 'follow',
+            signal: controller.signal 
         });
-
+        
+        clearTimeout(timeoutId);
         const data = await response.json();
-        console.log("Response Data:", data);
+        console.log("Server Data:", data);
 
+        // ปิด Loader
         document.getElementById('loader').style.display = 'none';
 
-        if (data && data.exists === true) {
-            currentUser = data; 
-            
-            // 🚩 ปรับปรุงเงื่อนไขการตรวจสอบสิทธิ์ตรงนี้ครับ
+        if (data && data.exists) {
             const role = (data.role || "").toLowerCase();
             const isAuthorizedStaff = data.isAdminOrStaff === true || 
                                      role.includes("admin") || 
                                      role.includes("เจ้าหน้าที่สถานพินิจ");
-            
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const vName = urlParams.get('vname');
+
             if (isAuthorizedStaff) {
-                // ✅ กรณี แอดมิน หรือ เจ้าหน้าที่สถานพินิจ: แสดงหน้าบันทึกข้อมูล
-                document.getElementById('staffSection').style.display = 'block';
-                document.getElementById('volunteerDashboard').style.display = 'none';
-                
-                // ดึงชื่อพ่วงจาก URL (ถ้ามี)
-                const urlParams = new URLSearchParams(window.location.search);
-                const vName = urlParams.get('vname');
-                if (vName) document.getElementById('volunteerName').value = vName;
-                
+                if (vName) {
+                    document.getElementById('staffSection').style.display = 'block';
+                    document.getElementById('volunteerName').value = vName;
+                } else {
+                    Swal.fire('เข้าถึงไม่ได้', 'กรุณาค้นหาชื่อกรรมการจากแชทบอทครับ', 'warning')
+                        .then(() => liff.closeWindow());
+                }
             } else {
-                // ✅ กรณีกรรมการ: แสดงเฉพาะหน้าคะแนนสะสมและผลงาน
+                // กรรมการดู Dashboard
                 document.getElementById('volunteerDashboard').style.display = 'block';
-                document.getElementById('staffSection').style.display = 'none';
                 document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
                 loadDashboardData(data.fullname);
             }
         } else {
-             // กรณีไม่พบการลงทะเบียน
-             Swal.fire({
-                title: 'ไม่พบข้อมูลลงทะเบียน',
-                text: 'บัญชี LINE นี้ยังไม่ได้ลงทะเบียนในระบบ พี่ฮู้ดี กรุณาติดต่อแอดมินหรือยืนยันตัวตนในแชทก่อนครับ',
-                icon: 'warning'
-             }).then(() => liff.closeWindow());
+            Swal.fire('ไม่พบข้อมูล', 'กรุณายืนยันตัวตนก่อนครับ', 'warning')
+                .then(() => liff.closeWindow());
         }
     } catch (err) {
-        console.error("Fetch error:", err);
-        document.getElementById('loader').style.display = 'none';
-        Swal.fire('Error', 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้', 'error');
+        console.error("Fetch/Role Error:", err);
+        document.getElementById('loader').innerHTML = "ไม่สามารถเชื่อมต่อฐานข้อมูลได้ (Timeout หรือ Network Error)";
+        Swal.fire('Error', 'ไม่สามารถเชื่อมต่อระบบได้ กรุณาลองใหม่อีกครั้ง', 'error');
     }
 }
     
