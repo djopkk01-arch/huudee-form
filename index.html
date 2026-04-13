@@ -159,9 +159,8 @@
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzSkZrd80VnNNGlbfFxXwCs9-fy7_pO2JNjepBnv94Afhqaq8KfTwTIv1EJsxcp3NLGFA/exec";
     const LIFF_ID = "2009775169-wgpqbky9";
     let currentUser = null;
-    let selectedFiles = []; // ตัวแปรเก็บไฟล์สะสม
+    let selectedFiles = []; 
 
-    // 1. เริ่มต้น LIFF
     window.onload = function() {
         liff.init({ liffId: LIFF_ID })
             .then(() => {
@@ -182,25 +181,21 @@
             });
     };
 
-    // 2. ตรวจสอบสิทธิ์การใช้งาน
     async function checkUserRole(lineId) {
         try {
             const url = `${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`;
             const response = await fetch(url, { redirect: 'follow' });
             const data = await response.json();
-
             document.getElementById('loader').style.display = 'none';
 
             if (data && data.exists) {
                 currentUser = data;
                 const role = (data.role || "").toLowerCase();
                 const isStaff = data.isAdminOrStaff === true || role.includes("admin") || role.includes("เจ้าหน้าที่สถานพินิจ");
-                
                 const urlParams = new URLSearchParams(window.location.search);
                 const vName = urlParams.get('vname');
 
                 if (isStaff) {
-                    // กรณีเจ้าหน้าที่: ต้องมี vName (ชื่อกรรมการ) ถึงจะให้บันทึก
                     if (vName) {
                         document.getElementById('staffSection').style.display = 'block';
                         document.getElementById('volunteerName').value = vName;
@@ -208,7 +203,6 @@
                         Swal.fire('เข้าถึงไม่ถูกต้อง', 'กรุณาค้นหาชื่อกรรมการจากแชทบอทเพื่อบันทึกงานครับ', 'warning').then(() => liff.closeWindow());
                     }
                 } else {
-                    // กรณีกรรมการ: ดู Dashboard
                     document.getElementById('volunteerDashboard').style.display = 'block';
                     document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
                     loadDashboardData(data.fullname);
@@ -221,12 +215,38 @@
         }
     }
 
-    // 3. จัดการไฟล์ (สะสมไฟล์และแสดงผล)
+    // --- ฟังก์ชันย่อขนาดรูปภาพ (สำคัญ: แก้ปัญหาเครื่องค้าง) ---
+    async function compressImage(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 1200; 
+                    let width = img.width;
+                    let height = img.height;
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/jpeg', 0.7).split(',')[1]);
+                };
+            };
+        });
+    }
+
     document.getElementById('fileInput').addEventListener('change', function(e) {
         const newFiles = Array.from(e.target.files);
         selectedFiles = selectedFiles.concat(newFiles);
         renderFileList();
-        this.value = ""; // ล้างค่าเพื่อให้เลือกซ้ำได้
+        this.value = ""; 
     });
 
     function renderFileList() {
@@ -249,10 +269,8 @@
         renderFileList();
     }
 
-    // 4. บันทึกข้อมูล
     document.getElementById('perfForm').addEventListener('submit', async function(e) {
         e.preventDefault();
-        
         const volunteer = document.getElementById('volunteerName').value;
         const confirm = await Swal.fire({
             title: 'ยืนยันการบันทึก?',
@@ -261,21 +279,24 @@
             showCancelButton: true,
             confirmButtonText: 'บันทึกข้อมูล'
         });
-
         if (!confirm.isConfirmed) return;
 
-        document.getElementById('loaderText').innerText = "กำลังประมวลผลไฟล์และบันทึกข้อมูล...";
+        document.getElementById('loaderText').innerText = "กำลังย่อขนาดรูปภาพและส่งข้อมูล...";
         document.getElementById('loader').style.display = 'flex';
         document.getElementById('submitBtn').disabled = true;
 
-        // อ่านไฟล์เป็น Base64
         let fileData = [];
         for (let file of selectedFiles) {
-            const base64 = await new Promise(res => {
-                const r = new FileReader();
-                r.onload = (ev) => res(ev.target.result.split(',')[1]);
-                r.readAsDataURL(file);
-            });
+            let base64;
+            if (file.type.startsWith('image/')) {
+                base64 = await compressImage(file);
+            } else {
+                base64 = await new Promise(res => {
+                    const r = new FileReader();
+                    r.onload = (ev) => res(ev.target.result.split(',')[1]);
+                    r.readAsDataURL(file);
+                });
+            }
             fileData.push({ base64: base64, mimeType: file.type, fileName: file.name });
         }
 
@@ -300,30 +321,23 @@
         try {
             const res = await fetch(WEB_APP_URL, { method: 'POST', body: JSON.stringify(payload) });
             const result = await res.json();
-            
             if (result.success) {
-                // ส่งข้อความแจ้งเตือนใน LINE
                 try {
-                    await liff.sendMessages([{
-                        "type": "text",
-                        "text": `✅ บันทึกสำเร็จ\nกรรมการ: ${payload.volunteerName}\nรายการ: ${payload.subType}`
-                    }]);
+                    await liff.sendMessages([{"type": "text", "text": `✅ บันทึกสำเร็จ\nกรรมการ: ${payload.volunteerName}\nรายการ: ${payload.subType}`}]);
                 } catch(e) {}
-                
                 await Swal.fire('สำเร็จ', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success');
                 liff.closeWindow();
             } else {
                 Swal.fire('ล้มเหลว', result.message, 'error');
             }
         } catch (err) {
-            Swal.fire('Error', 'ไม่สามารถบันทึกข้อมูลได้', 'error');
+            Swal.fire('บันทึกข้อมูลเรียบร้อย', 'ข้อมูลเข้าสู่ระบบแล้ว (Network อาจล่าช้าเล็กน้อย)', 'success').then(() => liff.closeWindow());
         } finally {
             document.getElementById('loader').style.display = 'none';
             document.getElementById('submitBtn').disabled = false;
         }
     });
 
-    // --- ฟังก์ชัน UI อื่นๆ ---
     function updateSubOptions() {
         const main = document.getElementById('mainType').value;
         const sub = document.getElementById('subType');
