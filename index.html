@@ -173,57 +173,58 @@
 
 async function checkUserRole(lineId) {
     try {
-        const url = `${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`;
-        
-        const response = await fetch(url, {
-            method: 'GET',
-            mode: 'cors',
-            redirect: 'follow' 
-        });
+        // 1. ดึงชื่อกรรมการจาก URL ก่อนเลย
+        const urlParams = new URLSearchParams(window.location.search);
+        const vName = urlParams.get('vname');
 
+        // 🚩 [เงื่อนไขที่พี่ต้องการ] ถ้าไม่มี vName ส่งมา ห้ามเปิดหน้าฟอร์มบันทึก
+        // ให้แจ้งเตือนและปิดหน้าต่างทันที
+        if (!vName) {
+            Swal.fire({
+                title: 'สิทธิ์การเข้าถึงจำกัด',
+                text: 'หน้านี้ใช้สำหรับบันทึกผลงานผ่านการค้นหาจากแชทบอทเท่านั้น ไม่สามารถเปิดใช้งานโดยตรงได้ครับ',
+                icon: 'error',
+                confirmButtonText: 'ตกลง'
+            }).then(() => {
+                liff.closeWindow(); // ปิดหน้าต่าง LIFF ทันที
+            });
+            return; // หยุดการทำงาน ไม่ต้องไปโหลดข้อมูลอื่นต่อ
+        }
+
+        // --- หากมี vName ให้ทำกระบวนการตรวจสอบสิทธิ์เดิมต่อ ---
+        const url = `${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`;
+        const response = await fetch(url, { redirect: 'follow' });
         const data = await response.json();
-        console.log("Response Data:", data);
 
         document.getElementById('loader').style.display = 'none';
 
         if (data && data.exists === true) {
-            currentUser = data; 
-            
-            // 🚩 ปรับปรุงเงื่อนไขการตรวจสอบสิทธิ์ตรงนี้ครับ
+            currentUser = data;
             const role = (data.role || "").toLowerCase();
             const isAuthorizedStaff = data.isAdminOrStaff === true || 
                                      role.includes("admin") || 
                                      role.includes("เจ้าหน้าที่สถานพินิจ");
-            
+
             if (isAuthorizedStaff) {
-                // ✅ กรณี แอดมิน หรือ เจ้าหน้าที่สถานพินิจ: แสดงหน้าบันทึกข้อมูล
+                // ✅ แสดงหน้าฟอร์มบันทึก (เฉพาะเมื่อมี vName ผ่านเงื่อนไขด้านบนมาแล้ว)
                 document.getElementById('staffSection').style.display = 'block';
                 document.getElementById('volunteerDashboard').style.display = 'none';
-                
-                // ดึงชื่อพ่วงจาก URL (ถ้ามี)
-                const urlParams = new URLSearchParams(window.location.search);
-                const vName = urlParams.get('vname');
-                if (vName) document.getElementById('volunteerName').value = vName;
-                
+                document.getElementById('volunteerName').value = vName; // ใส่ชื่อที่ดึงมา
             } else {
-                // ✅ กรณีกรรมการ: แสดงเฉพาะหน้าคะแนนสะสมและผลงาน
+                // ✅ กรณีกรรมการ: ให้เปิดหน้า Dashboard ดูคะแนนปกติ
+                // (ถ้ากรรมการเผลอมาคลิก Link ที่มี vName ก็ยังดูได้แค่คะแนนตัวเอง)
                 document.getElementById('volunteerDashboard').style.display = 'block';
                 document.getElementById('staffSection').style.display = 'none';
                 document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
                 loadDashboardData(data.fullname);
             }
         } else {
-             // กรณีไม่พบการลงทะเบียน
-             Swal.fire({
-                title: 'ไม่พบข้อมูลลงทะเบียน',
-                text: 'บัญชี LINE นี้ยังไม่ได้ลงทะเบียนในระบบ พี่ฮู้ดี กรุณาติดต่อแอดมินหรือยืนยันตัวตนในแชทก่อนครับ',
-                icon: 'warning'
-             }).then(() => liff.closeWindow());
+            Swal.fire('ไม่พบข้อมูล', 'กรุณายืนยันตัวตนก่อนครับ', 'warning').then(() => liff.closeWindow());
         }
     } catch (err) {
-        console.error("Fetch error:", err);
+        console.error("Error:", err);
         document.getElementById('loader').style.display = 'none';
-        Swal.fire('Error', 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้', 'error');
+        Swal.fire('Error', 'ไม่สามารถเชื่อมต่อระบบได้', 'error');
     }
 }
     
