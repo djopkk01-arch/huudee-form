@@ -332,7 +332,7 @@
                 try {
                     await liff.sendMessages([{
                         "type": "text",
-                        "text": `✅ บันทึกสำเร็จ\nกรรมการ: ${payload.volunteerName}\nรายการ: ${payload.subType}`
+                        "text": `✅ ส่งข้อมูล\nกรรมการ: ${payload.volunteerName}\nรายการ: ${payload.subType}\nไปบันทึกเรียบร้อยแล้ว`
                     }]);
                 } catch (lineErr) {
                     console.log("ส่งข้อความเข้าแชทไม่ได้ (อาจเพราะไม่ได้เปิดสิทธิ์):", lineErr);
