@@ -161,17 +161,39 @@
     let currentUser = null;
     let selectedFiles = []; 
 
-    window.onload = function() {
+window.onload = function() {
         liff.init({ liffId: LIFF_ID })
             .then(() => {
                 if (!liff.isLoggedIn()) {
                     liff.login();
                 } else {
                     const context = liff.getContext();
-                    if (context && context.userId) {
-                        checkUserRole(context.userId);
+                    const userId = (context && context.userId) ? context.userId : null;
+
+                    if (userId) {
+                        // 🚩 ส่วนที่เพิ่มใหม่: ตรวจสอบว่ากดมาจากริชเมนู "จองวัน" หรือไม่
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const target = urlParams.get('target');
+
+                        if (target === 'calendar') {
+                            // 🚀 ดีดตัวไปหน้าปฏิทินที่ Apps Script ทันทีพร้อมส่ง UID ไปเช็คสิทธิ์
+                            const appsScriptUrl = `${WEB_APP_URL}?page=calendar&uid=${userId}`;
+                            window.location.replace(appsScriptUrl); 
+                            return; // หยุดการทำงานที่เหลือในหน้านี้ เพื่อไม่ให้โหลด UI เดิมขึ้นมาซ้อน
+                        }
+
+                        // 🔵 ระบบเดิม: ทำงานตามปกติ
+                        checkUserRole(userId);
                     } else {
-                        liff.getProfile().then(p => checkUserRole(p.userId));
+                        liff.getProfile().then(p => {
+                            // 🚩 เช็คพารามิเตอร์กรณีเข้าผ่าน getProfile (เผื่อไว้)
+                            const urlParams = new URLSearchParams(window.location.search);
+                            if (urlParams.get('target') === 'calendar') {
+                                window.location.replace(`${WEB_APP_URL}?page=calendar&uid=${p.userId}`);
+                                return;
+                            }
+                            checkUserRole(p.userId);
+                        });
                     }
                 }
             })
