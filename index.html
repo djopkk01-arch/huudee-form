@@ -421,27 +421,79 @@ window.onload = function() {
         document.getElementById('halfwaySection').style.display = (s === 'บ้านกึ่งวิถี') ? 'block' : 'none';
     }
 
-    async function loadDashboardData(name) {
-        const year = document.getElementById('year').value;
-        try {
-            const res = await fetch(`${WEB_APP_URL}?action=getSummary&name=${name}&year=${year}`);
-            const data = await res.json();
-            if (data.success) {
-                const kpi = data.kpiScore || 0;
-                document.getElementById('kpiScore').innerText = `${kpi} / 12`;
-                document.getElementById('scoreBar').style.width = `${Math.min((kpi/12)*100, 100)}%`;
-                let stars = '';
-                let starCount = Math.min(Math.floor(kpi / 2.4), 5);
-                for(let i=0; i<5; i++) stars += i < starCount ? '<i class="bi bi-star-fill mx-1"></i>' : '<i class="bi bi-star mx-1 opacity-25"></i>';
-                document.getElementById('starRating').innerHTML = stars;
-                let tableHtml = '';
-                data.summaryData.forEach(item => {
-                    tableHtml += `<tr><td class="text-start">${item.label}</td><td class="text-center fw-bold text-primary">${item.count}</td></tr>`;
-                });
-                document.getElementById('summaryTableBody').innerHTML = tableHtml || '<tr><td colspan="2">ไม่พบประวัติผลงานในปีนี้</td></tr>';
+async function loadDashboardData(name) {
+    const year = document.getElementById('year') 
+                 ? document.getElementById('year').value 
+                 : (new Date().getFullYear() + 543).toString();
+    try {
+        const res = await fetch(`${WEB_APP_URL}?action=getSummary&name=${name}&year=${year}`);
+        const data = await res.json();
+        if (data.success) {
+            const kpi = data.kpiScore || 0;
+            document.getElementById('kpiScore').innerText = `${kpi} / 12`;
+            document.getElementById('scoreBar').style.width = `${Math.min((kpi/12)*100, 100)}%`;
+            
+            let stars = '';
+            let starCount = Math.min(Math.floor(kpi / 2.4), 5);
+            for(let i=0; i<5; i++) {
+                stars += i < starCount 
+                    ? '<i class="bi bi-star-fill mx-1"></i>' 
+                    : '<i class="bi bi-star mx-1 opacity-25"></i>';
             }
-        } catch (e) { console.error(e); }
+            document.getElementById('starRating').innerHTML = stars;
+            
+            let tableHtml = '';
+            data.summaryData.forEach((item, index) => {
+                
+                // ✅ 2 รายการแรกคือเยี่ยมและประชุม แสดงแถบแยกสีพิเศษ
+                if (index === 0) {
+                    // เพิ่มหัวข้อกลุ่มผลงานทั่วไป
+                    tableHtml += `
+                        <tr>
+                            <td colspan="2" class="py-2">
+                                <span class="badge bg-primary bg-opacity-10 text-primary fw-bold px-3 py-2 rounded-pill">
+                                    <i class="bi bi-clipboard2-check me-1"></i>ผลงานทั่วไป (ปีปัจจุบัน)
+                                </span>
+                            </td>
+                        </tr>`;
+                }
+                
+                if (index === 2) {
+                    // เพิ่มหัวข้อกลุ่ม KPI
+                    tableHtml += `
+                        <tr>
+                            <td colspan="2" class="py-2">
+                                <span class="badge bg-success bg-opacity-10 text-success fw-bold px-3 py-2 rounded-pill">
+                                    <i class="bi bi-star-fill me-1"></i>ผลงานเฉพาะ (นับคะแนน KPI)
+                                </span>
+                            </td>
+                        </tr>`;
+                }
+
+                // ✅ กำหนดสีและไอคอนตามกลุ่ม
+                const isGeneralWork = index < 2;
+                const icon = index === 0 
+                    ? '<i class="bi bi-person-heart text-info me-2"></i>'
+                    : index === 1 
+                        ? '<i class="bi bi-people text-primary me-2"></i>'
+                        : '';
+                const countColor = isGeneralWork ? 'text-info' : 'text-success';
+                const rowBg = isGeneralWork ? 'style="background-color: #f0f9ff;"' : '';
+
+                tableHtml += `
+                    <tr ${rowBg}>
+                        <td class="text-start">${icon}${item.label}</td>
+                        <td class="text-center fw-bold ${countColor}">${item.count} ครั้ง</td>
+                    </tr>`;
+            });
+            
+            document.getElementById('summaryTableBody').innerHTML = 
+                tableHtml || '<tr><td colspan="2" class="text-center text-muted">ไม่พบประวัติผลงานในปีนี้</td></tr>';
+        }
+    } catch (e) { 
+        console.error(e); 
     }
+}
 </script>
 </body>
 </html>
