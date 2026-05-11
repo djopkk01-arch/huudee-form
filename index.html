@@ -461,11 +461,13 @@ function buildDashboardTable(data) {
   const points    = data.points    || {};
   const capTotals = data.capTotals || {};
 
-  // เรียงตาม order จาก Sheet
   const sorted = Object.values(criteria)
     .sort((a, b) => (a.order || 0) - (b.order || 0));
 
-  // จัดกลุ่ม capGroup → [items]
+  if (sorted.length === 0) {
+    return '<tr><td colspan="2" class="text-center text-muted p-3">ไม่พบหัวข้อการประเมิน</td></tr>';
+  }
+
   const capGroupItems = {};
   sorted.forEach(c => {
     if (c.capGroup) {
@@ -475,9 +477,10 @@ function buildDashboardTable(data) {
   });
 
   const renderedGroups = new Set();
+  let itemNumber = 0; // 🚩 เพิ่มตัวนับ
   let html = '';
 
-  // ── แถวเยี่ยมและประชุม (ไม่ใช่ KPI แต่แสดงไว้ด้านบน) ──
+  // ── ผลงานทั่วไป ──
   html += `
     <tr>
       <td colspan="2" class="py-2">
@@ -494,7 +497,6 @@ function buildDashboardTable(data) {
       <td><i class="bi bi-people text-primary me-2"></i>ร่วมประชุม</td>
       <td class="text-center fw-bold text-primary">${data.meeting || 0} ครั้ง</td>
     </tr>
-
     <tr>
       <td colspan="2" class="py-2">
         <span class="badge bg-success bg-opacity-10 text-success fw-bold px-3 py-2 rounded-pill">
@@ -503,16 +505,20 @@ function buildDashboardTable(data) {
       </td>
     </tr>`;
 
-  // ── วนตาม criteria จริง ──
+  // ── วนตาม criteria ──
   sorted.forEach(c => {
 
     // standalone
     if (!c.capGroup) {
-      const pt = points[c.key] || 0;
+      itemNumber++;
+      const pt    = points[c.key] || 0;
       const stars = '★'.repeat(pt) + '☆'.repeat(Math.max(3 - pt, 0));
       html += `
         <tr>
-          <td>${c.label}</td>
+          <td>
+            <span class="text-muted me-1" style="font-size:0.8rem;">${itemNumber}.</span>
+            ${c.label}
+          </td>
           <td class="text-center">
             <span class="text-warning">${stars}</span>
             <span class="fw-bold ms-1 text-success">${pt}</span>
@@ -525,10 +531,10 @@ function buildDashboardTable(data) {
     if (renderedGroups.has(c.capGroup)) return;
     renderedGroups.add(c.capGroup);
 
+    itemNumber++;
     const groupItems = capGroupItems[c.capGroup] || [];
     const groupTotal = capTotals[c.capGroup]     || 0;
 
-    // หาชื่อกลุ่มจาก capLabel
     const labelItem  = groupItems.find(i => i.capLabel && i.capLabel.trim() !== '');
     const groupLabel = labelItem ? labelItem.capLabel : `ด้าน${c.group || c.capGroup}`;
 
@@ -536,6 +542,7 @@ function buildDashboardTable(data) {
     html += `
       <tr style="background:#f1f5f9;">
         <td colspan="2" class="fw-bold small ps-2">
+          <span class="text-muted me-1" style="font-size:0.8rem;">${itemNumber}.</span>
           ${groupLabel}
           <span class="badge bg-primary ms-1" style="font-size:0.6rem;">
             รวมไม่เกิน 3
@@ -562,13 +569,15 @@ function buildDashboardTable(data) {
                 : groupTotal >= 2 ? '#2563eb'
                 : groupTotal >= 1 ? '#d97706'
                 : '#6b7280';
-    const stars = '★'.repeat(groupTotal) + '☆'.repeat(Math.max(3 - groupTotal, 0));
+    const groupStars = '★'.repeat(groupTotal) + '☆'.repeat(Math.max(3 - groupTotal, 0));
     const shortLabel = groupLabel.replace(/^\d+[\.\d]*\s*(ด้าน)?/, '').trim();
     html += `
       <tr style="background:#eff6ff;">
-        <td class="ps-4 fw-bold small">รวม${shortLabel}</td>
+        <td class="ps-4 fw-bold small">
+          <i class="bi bi-calculator-fill me-1 text-primary"></i>รวม${shortLabel}
+        </td>
         <td class="text-center fw-bold" style="color:${color};">
-          ${stars} ${groupTotal}/3
+          ${groupStars} ${groupTotal}/3
         </td>
       </tr>`;
   });
