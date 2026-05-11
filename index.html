@@ -422,77 +422,158 @@ window.onload = function() {
     }
 
 async function loadDashboardData(name) {
-    const year = document.getElementById('year') 
-                 ? document.getElementById('year').value 
-                 : (new Date().getFullYear() + 543).toString();
-    try {
-        const res = await fetch(`${WEB_APP_URL}?action=getSummary&name=${name}&year=${year}`);
-        const data = await res.json();
-        if (data.success) {
-            const kpi = data.kpiScore || 0;
-            document.getElementById('kpiScore').innerText = `${kpi} / 12`;
-            document.getElementById('scoreBar').style.width = `${Math.min((kpi/12)*100, 100)}%`;
-            
-            let stars = '';
-            let starCount = Math.min(Math.floor(kpi / 2.4), 5);
-            for(let i=0; i<5; i++) {
-                stars += i < starCount 
-                    ? '<i class="bi bi-star-fill mx-1"></i>' 
-                    : '<i class="bi bi-star mx-1 opacity-25"></i>';
-            }
-            document.getElementById('starRating').innerHTML = stars;
-            
-            let tableHtml = '';
-            data.summaryData.forEach((item, index) => {
-                
-                // ✅ 2 รายการแรกคือเยี่ยมและประชุม แสดงแถบแยกสีพิเศษ
-                if (index === 0) {
-                    // เพิ่มหัวข้อกลุ่มผลงานทั่วไป
-                    tableHtml += `
-                        <tr>
-                            <td colspan="2" class="py-2">
-                                <span class="badge bg-primary bg-opacity-10 text-primary fw-bold px-3 py-2 rounded-pill">
-                                    <i class="bi bi-clipboard2-check me-1"></i>ผลงานทั่วไป (ปีปัจจุบัน)
-                                </span>
-                            </td>
-                        </tr>`;
-                }
-                
-                if (index === 2) {
-                    // เพิ่มหัวข้อกลุ่ม KPI
-                    tableHtml += `
-                        <tr>
-                            <td colspan="2" class="py-2">
-                                <span class="badge bg-success bg-opacity-10 text-success fw-bold px-3 py-2 rounded-pill">
-                                    <i class="bi bi-star-fill me-1"></i>ผลงานเฉพาะ (นับคะแนน KPI)
-                                </span>
-                            </td>
-                        </tr>`;
-                }
+  const year = (new Date().getFullYear() + 543).toString();
+  try {
+    const res  = await fetch(`${WEB_APP_URL}?action=getSummary&name=${encodeURIComponent(name)}&year=${year}`);
+    const data = await res.json();
 
-                // ✅ กำหนดสีและไอคอนตามกลุ่ม
-                const isGeneralWork = index < 2;
-                const icon = index === 0 
-                    ? '<i class="bi bi-person-heart text-info me-2"></i>'
-                    : index === 1 
-                        ? '<i class="bi bi-people text-primary me-2"></i>'
-                        : '';
-                const countColor = isGeneralWork ? 'text-info' : 'text-success';
-                const rowBg = isGeneralWork ? 'style="background-color: #f0f9ff;"' : '';
+    if (!data.success) return;
 
-                tableHtml += `
-                    <tr ${rowBg}>
-                        <td class="text-start">${icon}${item.label}</td>
-                        <td class="text-center fw-bold ${countColor}">${item.count} ครั้ง</td>
-                    </tr>`;
-            });
-            
-            document.getElementById('summaryTableBody').innerHTML = 
-                tableHtml || '<tr><td colspan="2" class="text-center text-muted">ไม่พบประวัติผลงานในปีนี้</td></tr>';
-        }
-    } catch (e) { 
-        console.error(e); 
+    // ── คะแนนรวม + progress ──
+    const kpi = data.kpiScore || 0;
+    document.getElementById('kpiScore').innerText = `${kpi} / 12`;
+    document.getElementById('scoreBar').style.width = `${Math.min((kpi / 12) * 100, 100)}%`;
+
+    let stars = '';
+    const starCount = Math.min(Math.floor(kpi / 2.4), 5);
+    for (let i = 0; i < 5; i++) {
+      stars += i < starCount
+        ? '<i class="bi bi-star-fill mx-1"></i>'
+        : '<i class="bi bi-star mx-1 opacity-25"></i>';
     }
+    document.getElementById('starRating').innerHTML = stars;
+
+    // ── วาดตาราง dynamic ──
+    document.getElementById('summaryTableBody').innerHTML =
+      buildDashboardTable(data);
+
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  buildDashboardTable — วาดตารางจาก criteria จริง
+// ══════════════════════════════════════════════════
+function buildDashboardTable(data) {
+  const criteria  = data.criteria  || {};
+  const stats     = data.stats     || {};
+  const points    = data.points    || {};
+  const capTotals = data.capTotals || {};
+
+  // เรียงตาม order จาก Sheet
+  const sorted = Object.values(criteria)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  // จัดกลุ่ม capGroup → [items]
+  const capGroupItems = {};
+  sorted.forEach(c => {
+    if (c.capGroup) {
+      if (!capGroupItems[c.capGroup]) capGroupItems[c.capGroup] = [];
+      capGroupItems[c.capGroup].push(c);
+    }
+  });
+
+  const renderedGroups = new Set();
+  let html = '';
+
+  // ── แถวเยี่ยมและประชุม (ไม่ใช่ KPI แต่แสดงไว้ด้านบน) ──
+  html += `
+    <tr>
+      <td colspan="2" class="py-2">
+        <span class="badge bg-primary bg-opacity-10 text-primary fw-bold px-3 py-2 rounded-pill">
+          <i class="bi bi-clipboard2-check me-1"></i>ผลงานทั่วไป (ปีปัจจุบัน)
+        </span>
+      </td>
+    </tr>
+    <tr style="background:#f0f9ff;">
+      <td><i class="bi bi-person-heart text-info me-2"></i>เยี่ยมเด็กและเยาวชน</td>
+      <td class="text-center fw-bold text-info">${data.visit || 0} ครั้ง</td>
+    </tr>
+    <tr style="background:#f0f9ff;">
+      <td><i class="bi bi-people text-primary me-2"></i>ร่วมประชุม</td>
+      <td class="text-center fw-bold text-primary">${data.meeting || 0} ครั้ง</td>
+    </tr>
+
+    <tr>
+      <td colspan="2" class="py-2">
+        <span class="badge bg-success bg-opacity-10 text-success fw-bold px-3 py-2 rounded-pill">
+          <i class="bi bi-star-fill me-1"></i>ผลงานเฉพาะ (นับคะแนน KPI)
+        </span>
+      </td>
+    </tr>`;
+
+  // ── วนตาม criteria จริง ──
+  sorted.forEach(c => {
+
+    // standalone
+    if (!c.capGroup) {
+      const pt = points[c.key] || 0;
+      const stars = '★'.repeat(pt) + '☆'.repeat(Math.max(3 - pt, 0));
+      html += `
+        <tr>
+          <td>${c.label}</td>
+          <td class="text-center">
+            <span class="text-warning">${stars}</span>
+            <span class="fw-bold ms-1 text-success">${pt}</span>
+          </td>
+        </tr>`;
+      return;
+    }
+
+    // capGroup — วาดครั้งเดียว
+    if (renderedGroups.has(c.capGroup)) return;
+    renderedGroups.add(c.capGroup);
+
+    const groupItems = capGroupItems[c.capGroup] || [];
+    const groupTotal = capTotals[c.capGroup]     || 0;
+
+    // หาชื่อกลุ่มจาก capLabel
+    const labelItem  = groupItems.find(i => i.capLabel && i.capLabel.trim() !== '');
+    const groupLabel = labelItem ? labelItem.capLabel : `ด้าน${c.group || c.capGroup}`;
+
+    // หัวกลุ่ม
+    html += `
+      <tr style="background:#f1f5f9;">
+        <td colspan="2" class="fw-bold small ps-2">
+          ${groupLabel}
+          <span class="badge bg-primary ms-1" style="font-size:0.6rem;">
+            รวมไม่เกิน 3
+          </span>
+        </td>
+      </tr>`;
+
+    // ข้อย่อย
+    groupItems.forEach(sub => {
+      const subPt = points[sub.key] || 0;
+      html += `
+        <tr>
+          <td class="ps-4 text-muted small">${sub.label}</td>
+          <td class="text-center">
+            <span class="badge bg-light text-primary border border-primary rounded-pill px-2">
+              ${subPt} คะแนน
+            </span>
+          </td>
+        </tr>`;
+    });
+
+    // แถวรวม cap
+    const color = groupTotal >= 3 ? '#16a34a'
+                : groupTotal >= 2 ? '#2563eb'
+                : groupTotal >= 1 ? '#d97706'
+                : '#6b7280';
+    const stars = '★'.repeat(groupTotal) + '☆'.repeat(Math.max(3 - groupTotal, 0));
+    const shortLabel = groupLabel.replace(/^\d+[\.\d]*\s*(ด้าน)?/, '').trim();
+    html += `
+      <tr style="background:#eff6ff;">
+        <td class="ps-4 fw-bold small">รวม${shortLabel}</td>
+        <td class="text-center fw-bold" style="color:${color};">
+          ${stars} ${groupTotal}/3
+        </td>
+      </tr>`;
+  });
+
+  return html;
 }
 </script>
 </body>
