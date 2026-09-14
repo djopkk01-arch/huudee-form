@@ -45,6 +45,8 @@
                 <h4 class="header-title"><i class="bi bi-person-badge"></i> สรุปคะแนนสะสมของท่าน</h4>
                 <p id="volunteerDisplayName" class="text-primary fw-bold mb-0"></p>
             </div>
+            <!-- 🆕 v2.21: ปุ่มเลือกดูคะแนนย้อนหลัง (ไม่เกิน 3 ปีล่าสุดที่มีข้อมูลในระบบ) -->
+            <div id="scoreYearButtons" class="d-flex justify-content-center gap-2 mb-3 flex-wrap"></div>
             <div class="score-box">
                 <div class="small opacity-75">คะแนนสะสมรอบปีปัจจุบัน</div>
                 <h1 id="kpiScore" class="my-2">0 / 12</h1>
@@ -143,7 +145,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
-    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwsym7PhzpDJ1-0xBCwN2yMBPEH6NaGcPecAhR6o4QuiXGWsCAG8lK-qBVtnHb-TRXv0Q/exec";
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzSkZrd80VnNNGlbfFxXwCs9-fy7_pO2JNjepBnv94Afhqaq8KfTwTIv1EJsxcp3NLGFA/exec";
     const LIFF_ID = "2009775169-wgpqbky9";
     let currentUser = null;
     let selectedFiles = [];
@@ -195,7 +197,20 @@ window.onload = function() {
             });
     };
 
-    async function checkUserRole(lineId) {
+    /**
+ * 🆕 v2.20: คำนวณปีงบประมาณปัจจุบัน (1 ก.ย. - 31 ส.ค.) ตรงกับตรรกะของหน้าเว็บหลักเป๊ะๆ
+ * ใช้ตั้งค่าช่องปีในฟอร์มบันทึกผลงานอัตโนมัติ แทนการ hardcode ไว้ตรงๆ ใน HTML ที่จะค้าง
+ * ผิดปีทันทีที่ข้ามปีงบประมาณไปแล้ว
+ */
+function getCurrentWorkYear() {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    let year = now.getFullYear() + 543;
+    if (month >= 9) year = year + 1;
+    return year.toString();
+}
+
+async function checkUserRole(lineId) {
         try {
             const url = `${WEB_APP_URL}?action=getVolunteerByLine&userId=${lineId}`;
             const response = await fetch(url, { redirect: 'follow' });
@@ -213,6 +228,11 @@ window.onload = function() {
                     if (vName) {
                         document.getElementById('staffSection').style.display = 'block';
                         document.getElementById('volunteerName').value = vName;
+                        // 🐞 v2.20: ช่องปีเคย hardcode ไว้เป็น "2569" ตรงๆ ใน HTML ไม่มีจุดไหน
+                        // คำนวณปีปัจจุบันให้ใหม่เลย ทำให้ค้างผิดปีทันทีที่ข้ามปีงบประมาณไป
+                        // (หลัง 1 ก.ย.) ต้องตั้งค่าให้ถูกต้องทุกครั้งที่เปิดฟอร์ม
+                        const yearField = document.getElementById('year');
+                        if (yearField) yearField.value = getCurrentWorkYear();
                         // 🆕 v2.8: โหลดโครงสร้างหัวข้อจาก Server + รายการหัวข้อที่กรรมการคนนี้
                         // เคยบันทึกไว้แล้ว (ใช้กรองว่าหัวข้อ "เยี่ยม" ควรแสดงหรือไม่)
                         loadCriteriaForm().then(() => fetchVolunteerUsedKeys(vName));
@@ -223,6 +243,7 @@ window.onload = function() {
                     document.getElementById('volunteerDashboard').style.display = 'block';
                     document.getElementById('volunteerDisplayName').innerText = `สวัสดีคุณ ${data.fullname}`;
                     loadDashboardData(data.fullname);
+                    loadScoreYearButtons(data.fullname);
                 }
             } else {
                 Swal.fire('ไม่พบข้อมูล', 'กรุณายืนยันตัวตนใน LINE ก่อนใช้งานครับ', 'warning').then(() => liff.closeWindow());
@@ -630,10 +651,15 @@ window.onload = function() {
         return { mainType: main, subType: subLabel, subDetail: subDetailLabel };
     }
 
-async function loadDashboardData(name) {
-  const year = (new Date().getFullYear() + 543).toString();
+/**
+ * 🐞 v2.21: เดิมคำนวณปีแบบดิบ (new Date().getFullYear() + 543) ไม่ตรงกับปีงบประมาณ
+ * ของระบบ (1 ก.ย. - 31 ส.ค.) เปลี่ยนมาใช้ getCurrentWorkYear() ให้ตรงกับหน้าเว็บหลัก
+ * และเพิ่มพารามิเตอร์ year (optional) ให้เลือกดูคะแนนปีย้อนหลังได้ผ่านปุ่มเลือกปี
+ */
+async function loadDashboardData(name, year) {
+  const targetYear = year || getCurrentWorkYear();
   try {
-    const res  = await fetch(`${WEB_APP_URL}?action=getSummary&name=${encodeURIComponent(name)}&year=${year}`);
+    const res  = await fetch(`${WEB_APP_URL}?action=getSummary&name=${encodeURIComponent(name)}&year=${targetYear}`);
     const data = await res.json();
 
     if (!data.success) return;
@@ -654,21 +680,78 @@ async function loadDashboardData(name) {
 
     // ── วาดตาราง dynamic ──
     document.getElementById('summaryTableBody').innerHTML =
-      buildDashboardTable(data);
+      buildDashboardTable(data, targetYear);
 
   } catch(e) {
     console.error(e);
   }
 }
 
+/**
+ * 🆕 v2.21 — โหลดปุ่มเลือกดูคะแนนย้อนหลัง ไม่เกิน 3 ปีล่าสุดที่มีข้อมูลอยู่จริงในระบบ
+ * (ดึงจาก action=getPerformanceYears ซึ่งคืนรายการปีเรียงจากล่าสุดไปเก่าสุดอยู่แล้ว)
+ */
+async function loadScoreYearButtons(name) {
+  const container = document.getElementById('scoreYearButtons');
+  if (!container) return;
+
+  try {
+    const res = await fetch(`${WEB_APP_URL}?action=getPerformanceYears`);
+    const data = await res.json();
+
+    const currentYear = getCurrentWorkYear();
+    let years = (data && data.success && data.years && data.years.length > 0) ? data.years : [currentYear];
+    if (!years.includes(currentYear)) years.unshift(currentYear); // เผื่อปีปัจจุบันยังไม่มีข้อมูลเลยก็ยังเลือกดูได้
+    years = years.slice(0, 3); // 🚩 ไม่เกิน 3 ปีล่าสุดตามที่กำหนด
+
+    renderScoreYearButtons(years, currentYear, name);
+  } catch (e) {
+    console.error('โหลดรายการปีไม่สำเร็จ:', e);
+    renderScoreYearButtons([getCurrentWorkYear()], getCurrentWorkYear(), name);
+  }
+}
+
+/**
+ * 🆕 v2.21 — วาดปุ่มเลือกปี + ผูก event คลิกเปลี่ยนปีที่กำลังดูอยู่
+ */
+function renderScoreYearButtons(years, activeYear, name) {
+  const container = document.getElementById('scoreYearButtons');
+  if (!container) return;
+
+  container.innerHTML = years.map(y => `
+    <button type="button"
+      class="btn btn-sm rounded-pill px-3 fw-bold ${y === activeYear ? 'btn-primary' : 'btn-outline-primary'}"
+      data-year="${y}" onclick="onScoreYearButtonClick('${y}', '${_jsSafe(name)}')">
+      พ.ศ. ${y}
+    </button>`).join('');
+}
+
+/**
+ * 🆕 v2.21 — เมื่อกดปุ่มเลือกปี: อัปเดตสถานะปุ่มที่กด (active) แล้วโหลดคะแนนของปีนั้นใหม่
+ */
+function onScoreYearButtonClick(year, name) {
+  document.querySelectorAll('#scoreYearButtons button').forEach(btn => {
+    const isActive = btn.dataset.year === year;
+    btn.classList.toggle('btn-primary', isActive);
+    btn.classList.toggle('btn-outline-primary', !isActive);
+  });
+  loadDashboardData(name, year);
+}
+
+// 🆕 v2.21 — ตัดอักขระที่จะทำให้ onclick attribute พังไป (เช่น เครื่องหมายคำพูดเดี่ยวในชื่อ)
+function _jsSafe(str) {
+  return (str || '').toString().replace(/'/g, "\\'");
+}
+
 // ══════════════════════════════════════════════════
 //  buildDashboardTable — วาดตารางจาก criteria จริง
 // ══════════════════════════════════════════════════
-function buildDashboardTable(data) {
+function buildDashboardTable(data, targetYear) {
   const criteria  = data.criteria  || {};
   const stats     = data.stats     || {};
   const points    = data.points    || {};
   const capTotals = data.capTotals || {};
+  const yearLabel = targetYear || getCurrentWorkYear();
 
   const sorted = Object.values(criteria)
     .sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -694,7 +777,7 @@ function buildDashboardTable(data) {
     <tr>
       <td colspan="2" class="py-2">
         <span class="badge bg-primary bg-opacity-10 text-primary fw-bold px-3 py-2 rounded-pill">
-          <i class="bi bi-clipboard2-check me-1"></i>ผลงานทั่วไป (ปีปัจจุบัน)
+          <i class="bi bi-clipboard2-check me-1"></i>ผลงานทั่วไป (ปี พ.ศ. ${yearLabel})
         </span>
       </td>
     </tr>
