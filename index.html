@@ -659,10 +659,16 @@ async function checkUserRole(lineId) {
 async function loadDashboardData(name, year) {
   const targetYear = year || getCurrentWorkYear();
   try {
-    const res  = await fetch(`${WEB_APP_URL}?action=getSummary&name=${encodeURIComponent(name)}&year=${targetYear}`);
+    const res  = await fetch(`${WEB_APP_URL}?action=getSummary&userId=${liff.getContext().userId}&name=${encodeURIComponent(name)}&year=${targetYear}`);
     const data = await res.json();
 
-    if (!data.success) return;
+    // 🐞 v2.24: เดิม return เงียบๆ ตอนล้มเหลว ไม่มีร่องรอยอะไรให้ตรวจสอบเลยแม้แต่ใน Console
+    // ทำให้กว่าจะรู้ว่า userId หายไปจาก URL ต้องไล่เช็คหลายรอบ เพิ่ม log ข้อความจริงจาก
+    // Server ไว้เผื่อเกิดปัญหาลักษณะนี้อีกในอนาคตจะได้เห็นสาเหตุได้เร็วขึ้น
+    if (!data.success) {
+      console.error('โหลดคะแนนไม่สำเร็จ:', data.message || '(ไม่มีข้อความ error จาก Server)');
+      return;
+    }
 
     // ── คะแนนรวม + progress ──
     const kpi = data.kpiScore || 0;
