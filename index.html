@@ -249,7 +249,12 @@ async function checkUserRole(lineId) {
                 Swal.fire('ไม่พบข้อมูล', 'กรุณายืนยันตัวตนใน LINE ก่อนใช้งานครับ', 'warning').then(() => liff.closeWindow());
             }
         } catch (err) {
-            Swal.fire('Error', 'ไม่สามารถเชื่อมต่อระบบได้', 'error');
+            // 🐞 v2.25: เดิมไม่ได้ปิด Loading ในจุดนี้เลย ถ้า fetch ล้มเหลว (เน็ตหลุด/ช้า
+            // ตอนใช้งานผ่านมือถือ) หน้าจะค้างที่ "กำลังตรวจสอบสิทธิ์..." ตลอดไป โดยมี popup
+            // error ซ้อนอยู่ข้างใต้ Loading ที่บังไว้จนมองไม่เห็น ต้องปิด Loading ก่อนเสมอ
+            // ไม่ว่าผลลัพธ์จะสำเร็จหรือล้มเหลวก็ตาม
+            document.getElementById('loader').style.display = 'none';
+            Swal.fire('Error', 'ไม่สามารถเชื่อมต่อระบบได้ กรุณาลองเปิดใหม่อีกครั้งครับ', 'error');
         }
     }
 
