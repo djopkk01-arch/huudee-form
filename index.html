@@ -253,8 +253,19 @@ async function checkUserRole(lineId) {
             // ตอนใช้งานผ่านมือถือ) หน้าจะค้างที่ "กำลังตรวจสอบสิทธิ์..." ตลอดไป โดยมี popup
             // error ซ้อนอยู่ข้างใต้ Loading ที่บังไว้จนมองไม่เห็น ต้องปิด Loading ก่อนเสมอ
             // ไม่ว่าผลลัพธ์จะสำเร็จหรือล้มเหลวก็ตาม
+            //
+            // 🐞 v2.32: เดิมแสดงแค่ข้อความกลางๆ "ไม่สามารถเชื่อมต่อระบบได้" ทำให้วินิจฉัยไม่ได้
+            // ว่าพังเพราะอะไร (เน็ต / ฟังก์ชันหาย / Server ตอบไม่ใช่ JSON) และบนมือถือก็เปิด
+            // Console ดูไม่ได้ จึงแสดงสาเหตุจริงติดไว้ในหน้าจอเลย
             document.getElementById('loader').style.display = 'none';
-            Swal.fire('Error', 'ไม่สามารถเชื่อมต่อระบบได้ กรุณาลองเปิดใหม่อีกครั้งครับ', 'error');
+            console.error('checkUserRole Error:', err);
+            Swal.fire({
+                icon: 'error',
+                title: 'ไม่สามารถเชื่อมต่อระบบได้',
+                html: 'กรุณาลองเปิดใหม่อีกครั้งครับ<br><br>' +
+                      '<div style="font-size:0.75rem;color:#888;word-break:break-all;text-align:left;">' +
+                      'รายละเอียด: ' + ((err && (err.message || err.toString())) || 'ไม่ทราบสาเหตุ') + '</div>'
+            });
         }
     }
 
