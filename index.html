@@ -163,6 +163,16 @@
     // 🆕 v2.8: cache รายการ criteriaKey ที่กรรมการคนที่กำลังกรอกอยู่เคยบันทึกไว้ ใช้กรอง
     // หัวข้อ "เยี่ยม" (childNameSourceKey) ไม่ให้โผล่ถ้ายังไม่เคยบันทึกหัวข้อต้นทางมาก่อน
     let cachedVolunteerUsedKeys = [];
+    // 🆕 v2.55: เก็บ LINE userId ที่ได้ตอนเปิดหน้า (จาก getContext หรือ getProfile) ไว้ใช้ทุกจุด
+    // เดิมเรียก liff.getContext().userId ซ้ำตอนบันทึก/โหลดข้อมูล ซึ่งบางกรณีไม่มีค่า (เปิดนอกแชท)
+    // ทั้งที่ตอนเปิดหน้าได้ userId จาก getProfile มาแล้ว ทำให้ Server ปฏิเสธเพราะไม่รู้ว่าเป็นใคร
+    let lineUserId = null;
+
+    function getLineUserId() {
+        if (lineUserId) return lineUserId;
+        const ctx = liff.getContext();
+        return (ctx && ctx.userId) ? ctx.userId : '';
+    }
 
 window.onload = function() {
         liff.init({ liffId: LIFF_ID })
@@ -174,6 +184,7 @@ window.onload = function() {
                     const userId = (context && context.userId) ? context.userId : null;
 
                     if (userId) {
+                        lineUserId = userId;
                         // 🚩 ส่วนที่เพิ่มใหม่: ตรวจสอบว่ากดมาจากริชเมนู "จองวัน" หรือไม่
                         const urlParams = new URLSearchParams(window.location.search);
                         const target = urlParams.get('target');
@@ -189,6 +200,7 @@ window.onload = function() {
                         checkUserRole(userId);
                     } else {
                         liff.getProfile().then(p => {
+                            lineUserId = p.userId;
                             // 🚩 เช็คพารามิเตอร์กรณีเข้าผ่าน getProfile (เผื่อไว้)
                             const urlParams = new URLSearchParams(window.location.search);
                             if (urlParams.get('target') === 'calendar') {
@@ -442,7 +454,7 @@ async function checkUserRole(lineId) {
         const labels = getSelectedLabels();
 
         const payload = {
-            userId: liff.getContext().userId,
+            userId: getLineUserId(),
             year: document.getElementById('year').value,
             volunteerName: volunteer,
             mainType: labels.mainType,
@@ -454,59 +466,69 @@ async function checkUserRole(lineId) {
             files: fileData
         };
 
+        // 🐞 v2.55: เดิมขึ้น "สำเร็จ" และส่งข้อความ ✅ เข้าแชทเสมอ แม้ Server ตอบว่าบันทึกไม่สำเร็จ
+        // หรือเน็ตหลุดจนไม่รู้ผล ทำให้ข้อมูลหายโดยไม่มีใครรู้ — แยก 3 กรณีให้ชัด:
+        //   1) Server ตอบ success = true  -> แจ้งสำเร็จ + ส่งข้อความเข้าแชท + ปิดหน้า
+        //   2) Server ตอบ success = false -> แจ้งเหตุผลจริง ไม่ปิดหน้า (แก้แล้วกดบันทึกซ้ำได้)
+        //   3) เชื่อมต่อไม่ได้/ไม่รู้ผล     -> เตือนให้ตรวจในระบบก่อนบันทึกซ้ำ ไม่ปิดหน้า
+        if (!payload.userId) {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('submitBtn').disabled = false;
+            await Swal.fire('ไม่สามารถบันทึกได้', 'ไม่พบข้อมูลบัญชี LINE ของท่าน กรุณาปิดหน้านี้แล้วเปิดใหม่จากแชท LINE', 'error');
+            return;
+        }
+
+        let result = null;
         try {
-            const res = await fetch(WEB_APP_URL, { 
-                method: 'POST', 
-                body: JSON.stringify(payload) 
-            });
-            
-            if (res.ok) {
-                const result = await res.json();
-                document.getElementById('loader').style.display = 'none';
-
-                // 🚩 เพิ่มส่วนส่งข้อความแจ้งเตือนเข้าหน้าแชท LINE
-                try {
-                    await liff.sendMessages([{
-                        "type": "text",
-                        "text": `✅ ส่งข้อมูล\nกรรมการ: ${payload.volunteerName}\nรายการ: ${payload.subType}\nไปบันทึกเรียบร้อยแล้ว`
-                    }]);
-                } catch (lineErr) {
-                    console.log("ส่งข้อความเข้าแชทไม่ได้ (อาจเพราะไม่ได้เปิดสิทธิ์):", lineErr);
-                }
-                
-                if (result.success) {
-                    await Swal.fire('สำเร็จ', 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success');
-                } else {
-                    await Swal.fire('แจ้งเตือน', result.message || 'บันทึกสำเร็จ', 'success');
-                }
-                liff.closeWindow();
-            } else {
-                throw new Error("Server Error");
+            const res = await fetchWithTimeout(WEB_APP_URL, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            }, 120000); // อัปโหลดรูปหลายไฟล์ใช้เวลานาน ให้เวลา 2 นาที
+            const rawText = await res.text();
+            try {
+                result = JSON.parse(rawText);
+            } catch (parseErr) {
+                const snippet = (rawText || '').replace(/\s+/g, ' ').trim().substring(0, 120);
+                throw new Error(`Server ตอบกลับไม่ใช่ JSON (HTTP ${res.status}) | ${snippet || 'ไม่มีเนื้อหา'}`);
             }
-
         } catch (err) {
+            // กรณี 3: ไม่รู้ว่าข้อมูลเข้า Sheet หรือยัง ห้ามบอกว่าสำเร็จ
             console.error("Fetch Error:", err);
             document.getElementById('loader').style.display = 'none';
-            
-            // 🚩 แม้จะเข้า Catch (Error) แต่ถ้าข้อมูลเข้า Sheet แล้ว เราก็เนียนส่งข้อความบอกในแชทด้วยครับ
-            try {
-                await liff.sendMessages([{
-                    "type": "text",
-                    "text": `✅ บันทึกสำเร็จ (Network Delay)\nกรรมการ: ${payload.volunteerName}`
-                }]);
-            } catch (e) {}
-
-            Swal.fire({
-                title: 'บันทึกข้อมูลเรียบร้อย',
-                text: 'ระบบประมวลผลสำเร็จแล้วครับ',
-                icon: 'success'
-            }).then(() => {
-                liff.closeWindow();
+            document.getElementById('submitBtn').disabled = false;
+            const detail = (err && (err.message || err.toString())) || 'ไม่ทราบสาเหตุ';
+            await Swal.fire({
+                title: 'ไม่ทราบผลการบันทึก',
+                html: 'การเชื่อมต่อมีปัญหา ระบบอาจบันทึกแล้วหรือยังไม่ได้บันทึก<br>' +
+                      '<b>กรุณาตรวจสอบในหน้าเว็บระบบก่อนกดบันทึกซ้ำ</b> เพื่อไม่ให้ข้อมูลซ้ำ<br><br>' +
+                      '<span style="font-size:12px;color:#888;word-break:break-all;">รายละเอียด: ' + detail + '</span>',
+                icon: 'warning'
             });
+            return;
         } finally {
             document.getElementById('loader').style.display = 'none';
             document.getElementById('submitBtn').disabled = false;
         }
+
+        if (!result || !result.success) {
+            // กรณี 2: Server ปฏิเสธ — แสดงเหตุผลจริง ฟอร์มและไฟล์ที่เลือกยังอยู่ แก้แล้วบันทึกซ้ำได้
+            await Swal.fire('บันทึกไม่สำเร็จ', (result && result.message) || 'ไม่ทราบสาเหตุ กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ', 'error');
+            return;
+        }
+
+        // กรณี 1: สำเร็จจริง (message 'Duplicate' = ส่งข้อมูลชุดเดิมซ้ำภายใน 1 นาที บันทึกไว้แล้วตั้งแต่ครั้งแรก)
+        try {
+            await liff.sendMessages([{
+                "type": "text",
+                "text": `✅ ส่งข้อมูล\nกรรมการ: ${payload.volunteerName}\nรายการ: ${payload.subType}\nไปบันทึกเรียบร้อยแล้ว`
+            }]);
+        } catch (lineErr) {
+            console.log("ส่งข้อความเข้าแชทไม่ได้ (อาจเพราะไม่ได้เปิดสิทธิ์):", lineErr);
+        }
+        await Swal.fire('สำเร็จ', result.message === 'Duplicate'
+            ? 'ข้อมูลนี้ถูกบันทึกไว้แล้วก่อนหน้านี้'
+            : 'บันทึกข้อมูลเรียบร้อยแล้ว', 'success');
+        liff.closeWindow();
     });
 
     /**
@@ -555,7 +577,7 @@ async function checkUserRole(lineId) {
      */
     async function fetchVolunteerUsedKeys(vName) {
         try {
-            const url = `${WEB_APP_URL}?action=getVolunteerUsedKeys&userId=${liff.getContext().userId}&name=${encodeURIComponent(vName)}`;
+            const url = `${WEB_APP_URL}?action=getVolunteerUsedKeys&userId=${getLineUserId()}&name=${encodeURIComponent(vName)}`;
             const res = await fetch(url);
             const data = await res.json();
             cachedVolunteerUsedKeys = (data && data.success) ? data.keys : [];
@@ -689,7 +711,7 @@ async function checkUserRole(lineId) {
         childSection.style.display = 'block';
 
         try {
-            const url = `${WEB_APP_URL}?action=getChildNames&userId=${liff.getContext().userId}&name=${encodeURIComponent(vName)}&sourceKey=${encodeURIComponent(selectedItem.childNameSourceKey)}`;
+            const url = `${WEB_APP_URL}?action=getChildNames&userId=${getLineUserId()}&name=${encodeURIComponent(vName)}&sourceKey=${encodeURIComponent(selectedItem.childNameSourceKey)}`;
             const res = await fetch(url);
             const data = await res.json();
             const select = document.getElementById('childNameSelect');
@@ -754,7 +776,7 @@ async function checkUserRole(lineId) {
 async function loadDashboardData(name, year) {
   const targetYear = year || getCurrentWorkYear();
   try {
-    const res  = await fetch(`${WEB_APP_URL}?action=getSummary&userId=${liff.getContext().userId}&name=${encodeURIComponent(name)}&year=${targetYear}`);
+    const res  = await fetch(`${WEB_APP_URL}?action=getSummary&userId=${getLineUserId()}&name=${encodeURIComponent(name)}&year=${targetYear}`);
     const data = await res.json();
 
     // 🐞 v2.24: เดิม return เงียบๆ ตอนล้มเหลว ไม่มีร่องรอยอะไรให้ตรวจสอบเลยแม้แต่ใน Console
