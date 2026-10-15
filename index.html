@@ -255,6 +255,25 @@
             return;
         }
 
+        // 🆕 v2.57: คำสั่ง "แผนงาน" ในแชท → หน้าแผนงานกิจกรรม (PDF) — เปิดได้เฉพาะคนที่ผูก LINE แล้ว
+        if (target === 'plan') {
+            if (auth.login && auth.login.exists) {
+                try {
+                    const t = await fetchJson(`${WEB_APP_URL}?action=calendarTicket&${authQuery()}`);
+                    if (t && t.success && t.ticket) {
+                        window.location.replace(`${WEB_APP_URL}?page=plan&t=${encodeURIComponent(t.ticket)}`);
+                        return;
+                    }
+                } catch (e) { /* แจ้งเตือนด้านล่าง */ }
+                document.getElementById('loader').style.display = 'none';
+                safeAlert('เปิดแผนงานไม่สำเร็จ', 'กรุณาลองใหม่อีกครั้งครับ', () => liff.closeWindow());
+                return;
+            }
+            document.getElementById('loader').style.display = 'none';
+            safeAlert('ยังไม่ได้ผูกบัญชี', 'บัญชี LINE นี้ยังไม่ได้ผูกกับระบบ กรุณาแชทส่วนตัวกับ OA เพื่อยืนยันตัวตนก่อนครับ', () => liff.closeWindow());
+            return;
+        }
+
         checkUserRole(userId, auth.login || null);
     }
 
