@@ -256,12 +256,13 @@
         }
 
         // 🆕 v2.57: คำสั่ง "แผนงาน" ในแชท → หน้าแผนงานกิจกรรม (PDF) — เปิดได้เฉพาะคนที่ผูก LINE แล้ว
-        if (target === 'plan') {
+        // 🆕 v2.58 (20 ต.ค. 2569): ริชเมนู ?target=projectplan → หน้าแผนโครงการรายเดือน (ทางเดียวกัน)
+        if (target === 'plan' || target === 'projectplan') {
             if (auth.login && auth.login.exists) {
                 try {
                     const t = await fetchJson(`${WEB_APP_URL}?action=calendarTicket&${authQuery()}`);
                     if (t && t.success && t.ticket) {
-                        window.location.replace(`${WEB_APP_URL}?page=plan&t=${encodeURIComponent(t.ticket)}`);
+                        window.location.replace(`${WEB_APP_URL}?page=${target}&t=${encodeURIComponent(t.ticket)}`);
                         return;
                     }
                 } catch (e) { /* แจ้งเตือนด้านล่าง */ }
